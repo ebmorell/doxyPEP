@@ -82,4 +82,7 @@ st.subheader("📊 Resumen final")
 summary_df = pd.DataFrame(summary_data)
 st.dataframe(summary_df)
 
+export_df = pd.DataFrame({'Día': t, 'Clamidia': I_clamidia, 'Sífilis': I_sifilis, 'Gonorrea': I_gonorrea})
+export_df.to_csv("ITS_simulacion.csv", index=False)
+
 
