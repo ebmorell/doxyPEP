@@ -1,109 +1,85 @@
+import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# ---------------------------
-# PARÁMETROS GENERALES
-# ---------------------------
-N = 10000               # Tamaño poblacional
-I0 = 500                # Infectados iniciales
-S0 = N - I0             # Susceptibles iniciales
-days = 365              # Duración de la simulación (1 año)
-t = np.arange(0, days)  # Vector de tiempo
+st.set_page_config(page_title="Simulador DoxyPEP ITS", layout="centered")
 
-# Contactos y transmisión
-contact_rate = 0.5  # contactos sexuales por persona y día
+st.title("📉 Simulador del impacto de DoxyPEP en ITS")
+st.markdown("Este simulador permite visualizar el efecto de la profilaxis postexposición con doxiciclina (DoxyPEP) sobre la transmisión de ITS en una población de riesgo, considerando eficacia, cobertura, adherencia y reinfecciones.")
 
-# Tasa de curación (1/duración media en días)
-gamma = 1 / 14
+# Parámetros globales
+N = st.number_input("Tamaño poblacional", 1000, 100000, value=10000)
+days = st.slider("Duración de la simulación (días)", 30, 1095, value=365)
+initial_infected = st.slider("Infectados iniciales", 0, N, value=500)
 
-# Eficacia de DoxyPEP por ITS
-efficacies = {
-    'clamidia': 0.85,
-    'sífilis': 0.80,
-    'gonorrea': 0.50
+contact_rate = st.slider("Contactos sexuales por persona/día", 0.1, 5.0, value=0.5)
+adherence = st.slider("Adherencia a DoxyPEP", 0.0, 1.0, value=0.8)
+coverage = st.slider("Cobertura poblacional de DoxyPEP", 0.0, 1.0, value=0.5)
+
+gamma = 1 / 14  # recuperación: media 14 días
+
+# ITS específicas
+st.subheader("🔬 Parámetros específicos de ITS")
+
+its = {
+    'clamidia': {
+        'trans_prob': st.number_input("Prob. transmisión - Clamidia", 0.01, 0.5, 0.05),
+        'efficacy': st.slider("Eficacia DoxyPEP - Clamidia", 0.0, 1.0, value=0.85),
+        'reinfections': st.slider("Reinfecciones diarias - Clamidia", 0.0, 10.0, 0.5)
+    },
+    'sífilis': {
+        'trans_prob': st.number_input("Prob. transmisión - Sífilis", 0.01, 0.5, 0.04),
+        'efficacy': st.slider("Eficacia DoxyPEP - Sífilis", 0.0, 1.0, value=0.80),
+        'reinfections': st.slider("Reinfecciones diarias - Sífilis", 0.0, 10.0, 0.2)
+    },
+    'gonorrea': {
+        'trans_prob': st.number_input("Prob. transmisión - Gonorrea", 0.01, 0.5, 0.06),
+        'efficacy': st.slider("Eficacia DoxyPEP - Gonorrea", 0.0, 1.0, value=0.50),
+        'reinfections': st.slider("Reinfecciones diarias - Gonorrea", 0.0, 10.0, 0.4)
+    }
 }
 
-# Probabilidad de transmisión por ITS (por contacto)
-transmission_probs = {
-    'clamidia': 0.05,
-    'sífilis': 0.04,
-    'gonorrea': 0.06
-}
+# Simulación
+t = np.arange(0, days)
+summary_data = []
 
-# Reinfecciones externas diarias
-external_infections = {
-    'clamidia': 0.5,
-    'sífilis': 0.2,
-    'gonorrea': 0.4
-}
-
-# Parámetros de DoxyPEP
-coverage = 0.5     # Proporción con acceso
-adherence = 0.8    # Proporción que lo toma correctamente
-
-# ---------------------------
-# SIMULACIÓN PARA CADA ITS
-# ---------------------------
-results = {}
-
-for disease in transmission_probs:
+for disease, params in its.items():
     S = np.zeros(days)
     I = np.zeros(days)
-    S[0] = S0
-    I[0] = I0
+    S[0] = N - initial_infected
+    I[0] = initial_infected
 
-    # Tasa de transmisión ajustada por eficacia, cobertura y adherencia
-    beta = (contact_rate * transmission_probs[disease]) / N
-    effective_beta = beta * (1 - efficacies[disease] * coverage * adherence)
+    beta = (contact_rate * params['trans_prob']) / N
+    effective_beta = beta * (1 - params['efficacy'] * coverage * adherence)
 
     for i in range(1, days):
-        new_infections = effective_beta * S[i-1] * I[i-1] + external_infections[disease]
+        new_infections = effective_beta * S[i-1] * I[i-1] + params['reinfections']
         recoveries = gamma * I[i-1]
+        S[i] = max(S[i-1] - new_infections + recoveries, 0)
+        I[i] = max(I[i-1] + new_infections - recoveries, 0)
 
-        S[i] = S[i-1] - new_infections + recoveries
-        I[i] = I[i-1] + new_infections - recoveries
+    # Gráfica
+    st.subheader(f"📈 Evolución: {disease.capitalize()}")
+    fig, ax = plt.subplots()
+    ax.plot(t, I, label="Infectados", color="red")
+    ax.plot(t, S, label="Susceptibles", color="green")
+    ax.set_xlabel("Días")
+    ax.set_ylabel("Personas")
+    ax.set_title(f"Evolución de {disease.capitalize()}")
+    ax.grid(True)
+    ax.legend()
+    st.pyplot(fig)
 
-        # Evitar valores negativos
-        S[i] = max(S[i], 0)
-        I[i] = max(I[i], 0)
+    summary_data.append({
+        'ITS': disease,
+        'Infectados al inicio': int(I[0]),
+        'Infectados al final': int(I[-1])
+    })
 
-    results[disease] = {
-        'S': S,
-        'I': I
-    }
-
-# ---------------------------
-# GRÁFICOS
-# ---------------------------
-for disease in results:
-    plt.figure(figsize=(8, 5))
-    plt.plot(t, results[disease]['I'], label=f'Infectados - {disease.capitalize()}', color='red')
-    plt.plot(t, results[disease]['S'], label=f'Susceptibles - {disease.capitalize()}', color='green')
-    plt.title(f'Evolución de {disease.capitalize()} con DoxyPEP y reinfecciones')
-    plt.xlabel('Días')
-    plt.ylabel('Personas')
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-# ---------------------------
-# TABLA RESUMEN FINAL
-# ---------------------------
-summary_data = {
-    'ITS': [],
-    'Infectados al inicio': [],
-    'Infectados al final': []
-}
-
-for disease in results:
-    summary_data['ITS'].append(disease)
-    summary_data['Infectados al inicio'].append(int(results[disease]['I'][0]))
-    summary_data['Infectados al final'].append(int(results[disease]['I'][-1]))
-
+# Tabla resumen
+st.subheader("📊 Resumen final")
 summary_df = pd.DataFrame(summary_data)
-print("\nResumen final de la simulación:")
-print(summary_df)
+st.dataframe(summary_df)
 
 
